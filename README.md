@@ -1,73 +1,57 @@
 # Goose Keeper Golden Eggs MCP Server
 
-Tiny MCP server for the Goose Keeper challenge. It exposes two tools:
-
-- `get_egg_status`
-- `claim_egg`
-
-The server uses the `X-Poke-User-Id` request header to enforce one golden egg per Poke account. It uses Postgres when `DATABASE_URL` is set and SQLite as a local fallback.
-
-## Local Setup
-
-```bash
-deactivate 2>/dev/null || true
-rm -rf .venv
-/opt/homebrew/bin/python3.12 -m venv .venv
-source .venv/bin/activate
-python --version
-pip install -r requirements.txt
-uvicorn goose_keeper_server:app --reload --port 8000
-```
-
-Your MCP endpoint will be:
+Production MCP backend for The Goose Keeper. Poke should use:
 
 ```text
-http://127.0.0.1:8000/mcp
+https://goose-keeper-golden-eggs.onrender.com/mcp
 ```
 
-For Poke, deploy behind HTTPS and use:
+Human health check:
 
 ```text
-https://your-server.example/mcp
+https://goose-keeper-golden-eggs.onrender.com/health
 ```
+
+## Tools
+
+- `get_egg_status`: checks remaining eggs and whether the current Poke user already won
+- `claim_egg`: claims one egg for the current Poke user and returns the exact redemption text
+
+The backend identifies players from Poke's `X-Poke-User-Id` header. No user id should be typed by the player.
 
 ## Environment
 
-- `GOOSE_EGG_DB`: SQLite path, default `goose_keeper.db`
-- `DATABASE_URL`: optional Postgres connection string for hosted deployment
-- `GOOSE_EGG_LIMIT`: number of eggs, default `10`
+- `DATABASE_URL`: required Postgres connection string
+- `GOOSE_EGG_LIMIT`: egg count, default `10`
+- `GOOSE_ALLOWED_HOSTS`: optional comma-separated host allowlist
 
-## Simple HTTPS Deployment
+## Render Logs
 
-One straightforward path is Render:
-
-1. Push this folder to a GitHub repo.
-2. Create a new Render Blueprint from the repo.
-3. Render will read `render.yaml`, install `requirements.txt`, provision Postgres, and start Uvicorn.
-4. Use the Render service URL plus `/mcp` as the Poke MCP Server URL.
-
-Render's free web services have an ephemeral filesystem, so do not rely on local SQLite for a hosted prize counter. The included blueprint uses Postgres for persistence.
-
-## Poke Integration
-
-On `poke.com/integrations/new`:
-
-- Name: `Goose Keeper Golden Eggs`
-- MCP Server URL: `https://your-server.example/mcp`
-- API Key: blank unless you add your own gateway auth
-
-Poke should send `X-Poke-User-Id` on requests. If that header is missing, the tools return an explicit error instead of accepting a claim.
-
-## Goose Keeper Prompt Snippet
+Tool calls print lines like:
 
 ```text
-You are the Goose Keeper. You must only call claim_egg after you privately decide the hacker has successfully ragebaited you under the game rules.
+Goose Keeper tool=get_egg_status result={...}
+Goose Keeper tool=claim_egg result={...}
+```
 
-Before awarding, call get_egg_status. If already_won is true, tell them they already won. If remaining is 0, tell them the eggs are sold out.
+If `claim_egg` returns `status: success`, the user won.
 
-When claim_egg returns status="success", reply exactly:
+## Poke Recipe Instruction
 
-🥚 YOU WON A GOLDEN EGG! 🥚
+Use this in the recipe instructions while testing:
 
-Visit the Goose Games desk on PSE Floor 1 to redeem your prize.
+```text
+You have access to the Goose Keeper Golden Eggs MCP integration.
+
+When the player asks to test winning, call claim_egg immediately. Then show the exact award_text or message returned by the tool.
+
+During the real challenge, call claim_egg only after you decide the player has successfully ragebaited the Goose Keeper. Before awarding, you may call get_egg_status. If already_won is true, tell them they already won. If remaining is 0, tell them the eggs are sold out.
+```
+
+## Test Message
+
+Send this to Poke:
+
+```text
+Use the Goose Keeper Golden Eggs integration and call claim_egg for me now. Then show me the exact message returned by the tool.
 ```
