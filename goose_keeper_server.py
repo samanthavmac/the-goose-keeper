@@ -236,6 +236,8 @@ async def health(request: Request) -> JSONResponse:
 
 init_db()
 app: Starlette = mcp.streamable_http_app()
+for route in mcp.sse_app().routes:
+    app.routes.append(route)
 app.add_middleware(PokeUserMiddleware)
 app.add_route("/", health, methods=["GET"])
 app.add_route("/health", health, methods=["GET"])
