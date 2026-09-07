@@ -155,12 +155,15 @@ def claim_postgres_egg(user_id: str) -> dict[str, Any]:
             (user_id,),
         )
 
-    return {
-        "status": "success",
-        "remaining": max(EGG_LIMIT - winner_count - 1, 0),
-        "message": award_text(),
-        "award_text": award_text(),
-    }
+    return log_tool_result(
+        "claim_egg",
+        {
+            "status": "success",
+            "remaining": max(EGG_LIMIT - winner_count - 1, 0),
+            "message": award_text(),
+            "award_text": award_text(),
+        },
+    )
 
 
 @mcp.tool()
@@ -265,8 +268,6 @@ async def health(request: Request) -> JSONResponse:
 
 init_db()
 app: Starlette = mcp.streamable_http_app()
-for route in mcp.sse_app().routes:
-    app.routes.append(route)
 app.add_middleware(PokeUserMiddleware)
 app.add_route("/", health, methods=["GET"])
 app.add_route("/health", health, methods=["GET"])
