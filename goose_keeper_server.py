@@ -64,6 +64,15 @@ def init_db() -> None:
         conn.commit()
 
 
+def award_text() -> str:
+    return "🥚 YOU WON A GOLDEN EGG! 🥚\n\nVisit the Goose Games desk on PSE Floor 1 to redeem your prize."
+
+
+def log_tool_result(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
+    print(f"Goose Keeper tool={tool_name} result={result}", flush=True)
+    return result
+
+
 def get_user_id() -> str:
     user_id = current_poke_user_id.get()
     if not user_id:
@@ -121,19 +130,25 @@ def claim_postgres_egg(user_id: str) -> dict[str, Any]:
                 EGG_LIMIT - conn.execute("SELECT COUNT(*) FROM winners").fetchone()[0],
                 0,
             )
-            return {
-                "status": "already_won",
-                "remaining": remaining,
-                "message": "This Poke user has already claimed a golden egg.",
-            }
+            return log_tool_result(
+                "claim_egg",
+                {
+                    "status": "already_won",
+                    "remaining": remaining,
+                    "message": "This Poke user has already claimed a golden egg.",
+                },
+            )
 
         winner_count = conn.execute("SELECT COUNT(*) FROM winners").fetchone()[0]
         if winner_count >= EGG_LIMIT:
-            return {
-                "status": "sold_out",
-                "remaining": 0,
-                "message": "All golden eggs have already been claimed.",
-            }
+            return log_tool_result(
+                "claim_egg",
+                {
+                    "status": "sold_out",
+                    "remaining": 0,
+                    "message": "All golden eggs have already been claimed.",
+                },
+            )
 
         conn.execute(
             "INSERT INTO winners (poke_user_id) VALUES (%s)",
@@ -143,7 +158,8 @@ def claim_postgres_egg(user_id: str) -> dict[str, Any]:
     return {
         "status": "success",
         "remaining": max(EGG_LIMIT - winner_count - 1, 0),
-        "message": "Golden egg claimed.",
+        "message": award_text(),
+        "award_text": award_text(),
     }
 
 
@@ -153,19 +169,22 @@ def get_egg_status() -> dict[str, Any]:
     try:
         user_id = get_user_id()
     except ValueError as error:
-        return {"status": "error", "message": str(error)}
+        return log_tool_result("get_egg_status", {"status": "error", "message": str(error)})
 
     if DATABASE_URL:
-        return get_postgres_status(user_id)
+        return log_tool_result("get_egg_status", get_postgres_status(user_id))
 
     with sqlite3.connect(DB_PATH) as conn:
         winner_count = count_winners(conn)
-        return {
-            "status": "ok",
-            "remaining": max(EGG_LIMIT - winner_count, 0),
-            "already_won": user_has_won(conn, user_id),
-            "limit": EGG_LIMIT,
-        }
+        return log_tool_result(
+            "get_egg_status",
+            {
+                "status": "ok",
+                "remaining": max(EGG_LIMIT - winner_count, 0),
+                "already_won": user_has_won(conn, user_id),
+                "limit": EGG_LIMIT,
+            },
+        )
 
 
 @mcp.tool()
@@ -174,10 +193,10 @@ def claim_egg() -> dict[str, Any]:
     try:
         user_id = get_user_id()
     except ValueError as error:
-        return {"status": "error", "message": str(error)}
+        return log_tool_result("claim_egg", {"status": "error", "message": str(error)})
 
     if DATABASE_URL:
-        return claim_postgres_egg(user_id)
+        return log_tool_result("claim_egg", claim_postgres_egg(user_id))
 
     with sqlite3.connect(DB_PATH, isolation_level=None) as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -185,20 +204,26 @@ def claim_egg() -> dict[str, Any]:
         if user_has_won(conn, user_id):
             remaining = max(EGG_LIMIT - count_winners(conn), 0)
             conn.execute("COMMIT")
-            return {
-                "status": "already_won",
-                "remaining": remaining,
-                "message": "This Poke user has already claimed a golden egg.",
-            }
+            return log_tool_result(
+                "claim_egg",
+                {
+                    "status": "already_won",
+                    "remaining": remaining,
+                    "message": "This Poke user has already claimed a golden egg.",
+                },
+            )
 
         winner_count = count_winners(conn)
         if winner_count >= EGG_LIMIT:
             conn.execute("COMMIT")
-            return {
-                "status": "sold_out",
-                "remaining": 0,
-                "message": "All golden eggs have already been claimed.",
-            }
+            return log_tool_result(
+                "claim_egg",
+                {
+                    "status": "sold_out",
+                    "remaining": 0,
+                    "message": "All golden eggs have already been claimed.",
+                },
+            )
 
         conn.execute(
             "INSERT INTO winners (poke_user_id) VALUES (?)",
@@ -207,11 +232,15 @@ def claim_egg() -> dict[str, Any]:
         remaining = max(EGG_LIMIT - winner_count - 1, 0)
         conn.execute("COMMIT")
 
-        return {
-            "status": "success",
-            "remaining": remaining,
-            "message": "Golden egg claimed.",
-        }
+        return log_tool_result(
+            "claim_egg",
+            {
+                "status": "success",
+                "remaining": remaining,
+                "message": award_text(),
+                "award_text": award_text(),
+            },
+        )
 
 
 class PokeUserMiddleware(BaseHTTPMiddleware):
