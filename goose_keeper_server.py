@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -14,6 +15,14 @@ from starlette.responses import JSONResponse
 DB_PATH = Path(os.getenv("GOOSE_EGG_DB", "goose_keeper.db"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 EGG_LIMIT = int(os.getenv("GOOSE_EGG_LIMIT", "10"))
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv(
+        "GOOSE_ALLOWED_HOSTS",
+        "127.0.0.1:*,localhost:*,[::1]:*,goose-keeper-golden-eggs.onrender.com",
+    ).split(",")
+    if host.strip()
+]
 
 current_poke_user_id: ContextVar[Optional[str]] = ContextVar(
     "current_poke_user_id", default=None
@@ -23,6 +32,7 @@ mcp = FastMCP(
     "Goose Keeper Golden Eggs",
     stateless_http=True,
     json_response=True,
+    transport_security=TransportSecuritySettings(allowed_hosts=ALLOWED_HOSTS),
 )
 
 
