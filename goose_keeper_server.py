@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 
 DB_PATH = Path(os.getenv("GOOSE_EGG_DB", "goose_keeper.db"))
@@ -212,6 +213,19 @@ class PokeUserMiddleware(BaseHTTPMiddleware):
             current_poke_user_id.reset(token)
 
 
+async def health(request: Request) -> JSONResponse:
+    return JSONResponse(
+        {
+            "status": "ok",
+            "name": "Goose Keeper Golden Eggs",
+            "mcp_url": "/mcp",
+            "tools": ["get_egg_status", "claim_egg"],
+        }
+    )
+
+
 init_db()
 app: Starlette = mcp.streamable_http_app()
 app.add_middleware(PokeUserMiddleware)
+app.add_route("/", health, methods=["GET"])
+app.add_route("/health", health, methods=["GET"])
