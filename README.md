@@ -19,11 +19,33 @@ https://goose-keeper-golden-eggs.onrender.com/health
 
 The backend identifies players from Poke's `X-Poke-User-Id` header. No user id should be typed by the player.
 
+This MCP does **not** award Goose Games points. A successful claim only:
+
+1. Deducts one of the global Golden Eggs
+2. Returns the official winning / redemption message to Poke (for the hacker)
+3. Posts a notification to the organizer Slack webhook (if configured)
+
+Organizers redeem prizes / GG points manually at the Goose Games desk.
+
 ## Environment
 
 - `DATABASE_URL`: required Postgres connection string
-- `GOOSE_EGG_LIMIT`: egg count, default `10`
+- `GOOSE_EGG_LIMIT`: total eggs available globally, default `10`
+- `SLACK_WEBHOOK_URL`: Incoming Webhook for the organizer-only Slack channel
 - `GOOSE_ALLOWED_HOSTS`: optional comma-separated host allowlist
+
+### Local vs Render
+
+- **Local:** copy [`.env.example`](.env.example) → `.env` and fill values. `.env` is gitignored; never commit secrets.
+- **Production (Render):** do **not** rely on a committed env file. In the Render dashboard → your web service → **Environment** → add `SLACK_WEBHOOK_URL` (and `GOOSE_EGG_LIMIT` if needed) → **Save** → redeploy. `render.yaml` marks `SLACK_WEBHOOK_URL` as `sync: false` so you paste the secret in the UI.
+
+### Slack setup
+
+1. Create an Incoming Webhook for the organizer-only channel.
+2. Put the URL in local `.env` and/or Render **Environment** as `SLACK_WEBHOOK_URL`.
+3. On each successful `claim_egg`, the server posts poke user id, claimed/remaining counts, and timestamp.
+
+If the webhook is missing or Slack fails, the egg claim still succeeds (logged as `slack_skip` / `slack_error`).
 
 ## Render Logs
 
