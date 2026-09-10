@@ -1,7 +1,12 @@
+import json
 import os
+import urllib.error
+import urllib.request
 from contextvars import ContextVar
+from datetime import datetime, timezone
 from typing import Any, Optional
 
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.applications import Starlette
@@ -9,9 +14,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+# Local `.env` only. On Render, env vars come from the dashboard.
+load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 EGG_LIMIT = int(os.getenv("GOOSE_EGG_LIMIT", "10"))
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "").strip()
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv(
@@ -54,7 +62,12 @@ def init_db() -> None:
 
 
 def award_text() -> str:
-    return "🥚 YOU WON A GOLDEN EGG! 🥚\n\nVisit the Goose Games desk on PSE Floor 1 to redeem your prize."
+    return (
+        "🥚 YOU WON A GOLDEN EGG! 🥚\n\n"
+        "Your egg has been issued. Visit the Goose Games desk on PSE Floor 1 "
+        "to redeem your prize. Goose Games points are awarded at the desk — "
+        "not automatically."
+    )
 
 
 def log_tool_result(tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -67,6 +80,51 @@ def get_user_id() -> str:
     if not user_id:
         raise ValueError("Missing X-Poke-User-Id header.")
     return user_id
+
+
+def notify_organizers_slack(
+    *,
+    poke_user_id: str,
+    claimed: int,
+    remaining: int,
+    claimed_at: str,
+) -> None:
+    """Best-effort organizer alert. Never blocks or rolls back a successful claim."""
+    if not SLACK_WEBHOOK_URL:
+        print(
+            "Goose Keeper slack_skip reason=missing_SLACK_WEBHOOK_URL",
+            flush=True,
+        )
+        return
+
+    payload = {
+        "text": (
+            f":egg: *Golden Egg issued*\n"
+            f"• Poke user: `{poke_user_id}`\n"
+            f"• Claimed: {claimed}/{EGG_LIMIT}\n"
+            f"• Remaining: {remaining}\n"
+            f"• At: {claimed_at}\n"
+            f"_Redeem at Goose Games desk (PSE Floor 1). No auto GG points._"
+        )
+    }
+    request = urllib.request.Request(
+        SLACK_WEBHOOK_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            print(
+                f"Goose Keeper slack_ok status={response.status} "
+                f"poke_user_id={poke_user_id} remaining={remaining}",
+                flush=True,
+            )
+    except (urllib.error.URLError, TimeoutError, OSError) as error:
+        print(
+            f"Goose Keeper slack_error poke_user_id={poke_user_id} error={error}",
+            flush=True,
+        )
 
 
 def egg_status(user_id: str) -> dict[str, Any]:
@@ -121,11 +179,21 @@ def claim_for_user(user_id: str) -> dict[str, Any]:
                 "message": "All golden eggs have already been claimed.",
             }
 
+        claimed_at = datetime.now(timezone.utc).isoformat()
         conn.execute("INSERT INTO winners (poke_user_id) VALUES (%s)", (user_id,))
+        remaining = max(EGG_LIMIT - winner_count - 1, 0)
+        claimed = winner_count + 1
+
+    notify_organizers_slack(
+        poke_user_id=user_id,
+        claimed=claimed,
+        remaining=remaining,
+        claimed_at=claimed_at,
+    )
 
     return {
         "status": "success",
-        "remaining": max(EGG_LIMIT - winner_count - 1, 0),
+        "remaining": remaining,
         "message": award_text(),
         "award_text": award_text(),
     }
