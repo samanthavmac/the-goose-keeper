@@ -3,29 +3,30 @@
 Production MCP backend for The Goose Keeper. Poke should use:
 
 ```text
-https://goose-keeper-golden-eggs.onrender.com/mcp
+https://the-goose-keeper.onrender.com/mcp
 ```
 
 Human health check:
 
 ```text
-https://goose-keeper-golden-eggs.onrender.com/health
+https://the-goose-keeper.onrender.com/health
 ```
 
 ## Tools
 
 - `get_egg_status`: checks remaining eggs and whether the current Poke user already won
-- `claim_egg`: claims one egg for the current Poke user and returns the exact redemption text
+- `claim_egg(email)`: claims one egg for the current Poke user; requires their myHN email (soft desk hint only)
 
 The backend identifies players from Poke's `X-Poke-User-Id` header. No user id should be typed by the player.
 
 This MCP does **not** award Goose Games points. A successful claim only:
 
 1. Deducts one of the global Golden Eggs
-2. Returns the official winning / redemption message to Poke (for the hacker)
-3. Posts a notification to the organizer Slack webhook (if configured)
+2. Stores email for desk lookup
+3. Returns the official winning / redemption message to Poke (for the hacker)
+4. Posts a notification to the organizer Slack webhook (if configured), including email
 
-Organizers redeem prizes / GG points manually at the Goose Games desk.
+Organizers redeem prizes / GG points manually at the Goose Games desk after verifying myHN/badge.
 
 ## Environment
 
@@ -43,7 +44,7 @@ Organizers redeem prizes / GG points manually at the Goose Games desk.
 
 1. Create an Incoming Webhook for the organizer-only channel.
 2. Put the URL in local `.env` and/or Render **Environment** as `SLACK_WEBHOOK_URL`.
-3. On each successful `claim_egg`, the server posts poke user id, claimed/remaining counts, and timestamp.
+3. On each successful `claim_egg`, the server posts poke user id, email, claimed/remaining counts, and timestamp.
 
 If the webhook is missing or Slack fails, the egg claim still succeeds (logged as `slack_skip` / `slack_error`).
 
@@ -58,22 +59,25 @@ Goose Keeper tool=claim_egg result={...}
 
 If `claim_egg` returns `status: success`, the user won.
 
-## Poke Recipe Instruction
+## Poke Recipe Instruction (event)
 
-Use this in the recipe instructions while testing:
+Add this near the MCP section of the recipe (remove TESTING MODE before the event):
 
 ```text
+## MCP
 You have access to the Goose Keeper Golden Eggs MCP integration.
 
-When the player asks to test winning, call claim_egg immediately. Then show the exact award_text or message returned by the tool.
-
-During the real challenge, call claim_egg only after you decide the player has successfully ragebaited the Goose Keeper. Before awarding, you may call get_egg_status. If already_won is true, tell them they already won. If remaining is 0, tell them the eggs are sold out.
+When a player successfully ragebaits the Goose Keeper according to the challenge rules:
+1. Call get_egg_status first. If already_won is true, tell them they already won. If remaining is 0, tell them the eggs are sold out.
+2. Ask for the email on their Hack the North / myHN account.
+3. Only after they provide an email, call claim_egg with that email argument.
+4. If claim_egg returns status="email_required", ask again for a real email and retry.
+5. If claim_egg returns status="success", respond exactly with the official winning message from award_text/message.
+6. Never invent an email. Never call claim_egg without an email the hacker typed.
 ```
 
 ## Test Message
 
-Send this to Poke:
-
 ```text
-Use the Goose Keeper Golden Eggs integration and call claim_egg for me now. Then show me the exact message returned by the tool.
+I successfully ragebaited you for testing. Ask me for my email, then call claim_egg with it and show the exact tool result.
 ```

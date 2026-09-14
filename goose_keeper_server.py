@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from contextvars import ContextVar
@@ -24,10 +25,12 @@ ALLOWED_HOSTS = [
     host.strip()
     for host in os.getenv(
         "GOOSE_ALLOWED_HOSTS",
-        "127.0.0.1:*,localhost:*,[::1]:*,goose-keeper-golden-eggs.onrender.com",
+        "127.0.0.1:*,localhost:*,[::1]:*,the-goose-keeper.onrender.com,goose-keeper-golden-eggs.onrender.com",
     ).split(",")
     if host.strip()
 ]
+EMAIL_MAX_LEN = 254
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 current_poke_user_id: ContextVar[Optional[str]] = ContextVar(
     "current_poke_user_id", default=None
@@ -55,10 +58,25 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS winners (
                 poke_user_id TEXT PRIMARY KEY,
-                claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                email TEXT
             )
             """
         )
+        conn.execute(
+            """
+            ALTER TABLE winners
+            ADD COLUMN IF NOT EXISTS email TEXT
+            """
+        )
+
+
+def normalize_email(email: str) -> str:
+    return email.strip().lower()[:EMAIL_MAX_LEN]
+
+
+def is_plausible_email(email: str) -> bool:
+    return bool(email) and EMAIL_RE.match(email) is not None
 
 
 def award_text() -> str:
@@ -85,6 +103,7 @@ def get_user_id() -> str:
 def notify_organizers_slack(
     *,
     poke_user_id: str,
+    email: str,
     claimed: int,
     remaining: int,
     claimed_at: str,
@@ -97,14 +116,17 @@ def notify_organizers_slack(
         )
         return
 
+    email_line = email if email else "not provided"
     payload = {
         "text": (
             f":egg: *Golden Egg issued*\n"
             f"• Poke user: `{poke_user_id}`\n"
+            f"• Email (soft match): `{email_line}`\n"
             f"• Claimed: {claimed}/{EGG_LIMIT}\n"
             f"• Remaining: {remaining}\n"
             f"• At: {claimed_at}\n"
-            f"_Redeem at Goose Games desk (PSE Floor 1). No auto GG points._"
+            f"_Redeem at Goose Games desk (PSE Floor 1). "
+            f"Verify myHN/badge — email is not proof._"
         )
     }
     request = urllib.request.Request(
@@ -148,8 +170,19 @@ def egg_status(user_id: str) -> dict[str, Any]:
     }
 
 
-def claim_for_user(user_id: str) -> dict[str, Any]:
+def claim_for_user(user_id: str, email: str) -> dict[str, Any]:
     import psycopg
+
+    normalized_email = normalize_email(email)
+    if not is_plausible_email(normalized_email):
+        return {
+            "status": "email_required",
+            "remaining": egg_status(user_id)["remaining"],
+            "message": (
+                "Ask the hacker for the email on their Hack the North / myHN "
+                "account, then call claim_egg again with that email."
+            ),
+        }
 
     with psycopg.connect(require_database_url()) as conn:
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('goose_keeper_eggs'))")
@@ -180,12 +213,16 @@ def claim_for_user(user_id: str) -> dict[str, Any]:
             }
 
         claimed_at = datetime.now(timezone.utc).isoformat()
-        conn.execute("INSERT INTO winners (poke_user_id) VALUES (%s)", (user_id,))
+        conn.execute(
+            "INSERT INTO winners (poke_user_id, email) VALUES (%s, %s)",
+            (user_id, normalized_email),
+        )
         remaining = max(EGG_LIMIT - winner_count - 1, 0)
         claimed = winner_count + 1
 
     notify_organizers_slack(
         poke_user_id=user_id,
+        email=normalized_email,
         claimed=claimed,
         remaining=remaining,
         claimed_at=claimed_at,
@@ -194,6 +231,7 @@ def claim_for_user(user_id: str) -> dict[str, Any]:
     return {
         "status": "success",
         "remaining": remaining,
+        "email": normalized_email,
         "message": award_text(),
         "award_text": award_text(),
     }
@@ -212,10 +250,17 @@ def get_egg_status() -> dict[str, Any]:
 
 
 @mcp.tool()
-def claim_egg() -> dict[str, Any]:
-    """Award a golden egg to the current Poke user and return the redemption text."""
+def claim_egg(email: str) -> dict[str, Any]:
+    """Award a golden egg after collecting the hacker's myHN email.
+
+    Args:
+        email: Email address on the hacker's Hack the North / myHN account.
+            Used only as a soft desk lookup hint in Slack — not verification.
+    """
     try:
-        return log_tool_result("claim_egg", claim_for_user(get_user_id()))
+        return log_tool_result(
+            "claim_egg", claim_for_user(get_user_id(), email)
+        )
     except Exception as error:
         return log_tool_result(
             "claim_egg",
