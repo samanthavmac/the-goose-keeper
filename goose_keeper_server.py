@@ -121,12 +121,12 @@ def notify_organizers_slack(
         "text": (
             f":egg: *Golden Egg issued*\n"
             f"• Poke user: `{poke_user_id}`\n"
-            f"• Email (soft match): `{email_line}`\n"
+            f"• Email (RSVP'd with): `{email_line}`\n"
             f"• Claimed: {claimed}/{EGG_LIMIT}\n"
             f"• Remaining: {remaining}\n"
             f"• At: {claimed_at}\n"
             f"_Redeem at Goose Games desk (PSE Floor 1). "
-            f"Verify myHN/badge — email is not proof._"
+            f"Verify myHTN/badge — email is a lookup hint, not proof._"
         )
     }
     request = urllib.request.Request(
@@ -179,8 +179,8 @@ def claim_for_user(user_id: str, email: str) -> dict[str, Any]:
             "status": "email_required",
             "remaining": egg_status(user_id)["remaining"],
             "message": (
-                "Ask the hacker for the email on their Hack the North / myHN "
-                "account, then call claim_egg again with that email."
+                "Ask the hacker for the email they RSVP'd with on myHTN "
+                "(Hack the North), then call claim_egg again with that email."
             ),
         }
 
@@ -251,11 +251,11 @@ def get_egg_status() -> dict[str, Any]:
 
 @mcp.tool()
 def claim_egg(email: str) -> dict[str, Any]:
-    """Award a golden egg after collecting the hacker's myHN email.
+    """Award a golden egg after collecting the email the hacker RSVP'd with.
 
     Args:
-        email: Email address on the hacker's Hack the North / myHN account.
-            Used only as a soft desk lookup hint in Slack — not verification.
+        email: Email the hacker RSVP'd with on myHTN (Hack the North).
+            Used only as a desk lookup hint in Slack — not verification.
     """
     try:
         return log_tool_result(
